@@ -69,6 +69,7 @@ thead tr { background: #1a1a1a; color: #fff; }
 th { padding: 12px 14px; text-align: left; font-weight: 700; letter-spacing: 1px; font-size: 10px; text-transform: uppercase; white-space: nowrap; }
 td { padding: 12px 14px; vertical-align: middle; border-bottom: 1px solid #eee; }
 tr:nth-child(even) td { background: #fafaf8; }
+tr:hover td { background: #f0ece0 !important; }
 .badge { padding: 2px 8px; border-radius: 2px; font-size: 11px; }
 .bt { background: #f0ece0; }
 .bu { background: #e8f0e8; }
@@ -221,7 +222,7 @@ canvas { display: block; width: 100%; cursor: crosshair; touch-action: none; }
       <table>
         <thead><tr>
           <th>#</th><th>Fecha</th><th>Tipo</th><th>Descripción</th>
-          <th>Cliente/Proyecto</th><th>Cant.</th><th>Unidad</th><th>Entregado a</th><th>Fotos</th><th>Firma</th><th>Vale</th>
+          <th>Cliente/Proyecto</th><th>Cant.</th><th>Unidad</th><th>Entregado a</th><th>Fotos</th><th>Firma</th>
         </tr></thead>
         <tbody id="bit-tbody"></tbody>
       </table>
@@ -571,7 +572,7 @@ function renderBitacora() {
   empty.style.display='none'; table.style.display='block';
   tbody.innerHTML=registros.map((r,i)=>{
     const fotos = r.fotos ? (typeof r.fotos==='string' ? JSON.parse(r.fotos) : r.fotos) : [];
-    return '<tr>'+
+    return '<tr style="cursor:pointer" onclick="openVale(registros['+i+'])">'+
       '<td><b>'+(r.numero||String(r.id).padStart(3,'0'))+'</b></td>'+
       '<td style="font-weight:300">'+(r.fecha||'')+'</td>'+
       '<td><span class="badge bt">'+r.tipo+'</span></td>'+
@@ -582,7 +583,6 @@ function renderBitacora() {
       '<td>'+r.receptor+'</td>'+
       '<td style="text-align:center">'+(fotos.length>0?'📷 '+fotos.length:'—')+'</td>'+
       '<td style="text-align:center">'+(r.firma?'✅':'—')+'</td>'+
-      '<td><button class="btn-ver" onclick="openVale(registros['+i+'])">👁 Ver</button></td>'+
       '</tr>';
   }).join('');
 }
