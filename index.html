@@ -283,6 +283,7 @@ canvas { display: block; width: 100%; cursor: crosshair; touch-action: none; }
       <button class="btn-firma" id="btn-firma" onclick="openFirmaModal()">✍️ Firma Digital</button>
       <button class="btn-pdf" onclick="generarPDF()">⬇️ Descargar PDF</button>
       <button class="btn-links" onclick="toggleLinks()">🔗 Copiar Links</button>
+      <button class="btn-edit" onclick="openPinModal()" style="padding:12px 20px;background:#fff;color:#1a1a1a;border:1.5px solid #1a1a1a;cursor:pointer;font-size:11px;letter-spacing:2px;text-transform:uppercase;font-family:'Sneak',serif;font-weight:700;border-radius:2px;">✏️ Editar</button>
     </div>
 
     <div class="links-box" id="links-box">
@@ -325,7 +326,9 @@ const BASE_URL = window.location.origin + window.location.pathname;
 const TIPOS = ["Referencia","Herramental","Ojillo","Material","Muestra","Prototipo","Otro"];
 const UNIDADES = ["Pieza","Par","Paquete","Caja","Juego","Metro","Pie","Rollo","Muestra","Lote"];
 
+const EDIT_PIN = '2026';
 let registros = [];
+let editMode = false;
 let activeVale = null;
 let selTipo = "", selUnidad = "";
 let firmaImg = null;
@@ -749,6 +752,129 @@ function openFirmaModal() {
 function closeModal(id){ document.getElementById(id).classList.remove('show'); }
 document.addEventListener('click',e=>{ if(e.target.classList.contains('modal-bg')) e.target.classList.remove('show'); });
 
+// ── PIN & Edit ──
+let editSelTipo = '', editSelUnidad = '', editFotos = [null,null,null,null], editActiveFotoSlot = 0;
+
+function openPinModal() {
+  document.getElementById('pin-input').value = '';
+  document.getElementById('pin-error').classList.remove('show');
+  document.getElementById('modal-pin').classList.add('show');
+  setTimeout(() => document.getElementById('pin-input').focus(), 100);
+}
+
+function checkPin() {
+  const pin = document.getElementById('pin-input').value;
+  if (pin === EDIT_PIN) {
+    closeModal('modal-pin');
+    openEditModal();
+  } else {
+    document.getElementById('pin-error').classList.add('show');
+    document.getElementById('pin-input').value = '';
+  }
+}
+
+function openEditModal() {
+  if (!activeVale) return;
+  document.getElementById('edit-vale-num').textContent = 'Editando Vale #' + (activeVale.numero || activeVale.id);
+  document.getElementById('edit-desc').value = activeVale.descripcion || '';
+  document.getElementById('edit-cliente').value = activeVale.cliente || '';
+  document.getElementById('edit-cant').value = activeVale.cantidad || '';
+  document.getElementById('edit-receptor').value = activeVale.receptor || '';
+
+  // Build tipo chips if not built
+  const tc = document.getElementById('edit-tipo-chips');
+  if (!tc.children.length) buildChips('edit-tipo-chips', TIPOS, 'edit-tipo');
+  editSelTipo = activeVale.tipo || '';
+  tc.querySelectorAll('.chip').forEach(b => {
+    b.classList.toggle('active', b.textContent === editSelTipo);
+  });
+
+  // Build unidad chips if not built
+  const uc = document.getElementById('edit-unidad-chips');
+  if (!uc.children.length) buildChips('edit-unidad-chips', UNIDADES, 'edit-unidad');
+  editSelUnidad = activeVale.unidad || '';
+  uc.querySelectorAll('.chip').forEach(b => {
+    b.classList.toggle('active', b.textContent === editSelUnidad);
+  });
+
+  // Load existing fotos
+  const fotosRaw = activeVale.fotos ? (typeof activeVale.fotos==='string' ? JSON.parse(activeVale.fotos) : activeVale.fotos) : [];
+  editFotos = [null,null,null,null];
+  fotosRaw.forEach((f, i) => { if (i < 4) editFotos[i] = f; });
+  [0,1,2,3].forEach(i => renderEditSlot(i));
+
+  document.getElementById('modal-edit').classList.add('show');
+}
+
+function renderEditSlot(i) {
+  const slot = document.getElementById('edit-slot-'+i);
+  if (editFotos[i]) {
+    slot.innerHTML = '<img src="'+editFotos[i]+'" alt="foto" style="width:100%;height:100%;object-fit:cover"><button style="position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.6);color:#fff;border:none;cursor:pointer;border-radius:50%;width:22px;height:22px;font-size:12px;display:flex;align-items:center;justify-content:center" onclick="delEditFoto(event,'+i+')">✕</button>';
+  } else {
+    slot.innerHTML = '<span class="foto-add">＋</span>';
+  }
+}
+
+function triggerEditFoto(slot) {
+  editActiveFotoSlot = slot;
+  const inp = document.getElementById('edit-foto-input');
+  inp.value = ''; inp.click();
+}
+
+function handleEditFoto(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => { editFotos[editActiveFotoSlot] = ev.target.result; renderEditSlot(editActiveFotoSlot); };
+  reader.readAsDataURL(file);
+}
+
+function delEditFoto(e, i) {
+  e.stopPropagation(); editFotos[i] = null; renderEditSlot(i);
+}
+
+async function saveEdit() {
+  const desc = document.getElementById('edit-desc').value.trim();
+  const cli = document.getElementById('edit-cliente').value.trim();
+  const cant = parseInt(document.getElementById('edit-cant').value);
+  const rec = document.getElementById('edit-receptor').value.trim();
+  if (!desc || !cli || !cant || !rec || !editSelTipo || !editSelUnidad) {
+    alert('Completa todos los campos'); return;
+  }
+
+  const fotos = editFotos.filter(f => f !== null);
+  const fields = {
+    tipo: editSelTipo, descripcion: desc, cliente: cli,
+    cantidad: cant, unidad: editSelUnidad, receptor: rec,
+    fotos: fotos.length ? JSON.stringify(fotos) : null
+  };
+
+  try {
+    setSyncStatus('saving');
+    await updateDB(activeVale.id, fields);
+    const idx = registros.findIndex(r => r.id === activeVale.id);
+    if (idx > -1) { Object.assign(registros[idx], fields); }
+    Object.assign(activeVale, fields);
+    setSyncStatus('ok');
+    closeModal('modal-edit');
+    openVale(activeVale); // refresh vale view
+    renderBitacora();
+  } catch(e) {
+    setSyncStatus('err'); alert('Error al guardar: ' + e.message);
+  }
+}
+
+// Override selChip to handle edit chips too
+const _origSelChip = selChip;
+function selChip(type, val, wrap) {
+  wrap.querySelectorAll('.chip').forEach(b => b.classList.remove('active','error-chip'));
+  [...wrap.querySelectorAll('.chip')].find(b => b.textContent === val)?.classList.add('active');
+  if (type === 'tipo') { selTipo = val; clearErr('err-tipo'); }
+  if (type === 'unidad') { selUnidad = val; clearErr('err-unidad'); }
+  if (type === 'edit-tipo') editSelTipo = val;
+  if (type === 'edit-unidad') editSelUnidad = val;
+}
+
+
 function showErr(id){ document.getElementById(id).classList.add('show'); }
 function clearErr(id){ document.getElementById(id).classList.remove('show'); }
 function chipErr(id){ document.getElementById(id).querySelectorAll('.chip').forEach(c=>c.classList.add('error-chip')); }
@@ -764,5 +890,73 @@ document.addEventListener('DOMContentLoaded', async () => {
   checkDeepLink();
 });
 </script>
+
+<!-- MODAL EDITAR -->
+<div class="modal-bg" id="modal-pin">
+  <div class="modal">
+    <div class="dept">Acceso restringido</div>
+    <h3>Modo Edición</h3>
+    <div class="msub">Ingresa el PIN para editar este vale</div>
+    <input type="password" id="pin-input" placeholder="••••" maxlength="6" 
+      style="text-align:center;font-size:24px;letter-spacing:8px;margin-bottom:8px"
+      onkeydown="if(event.key==='Enter') checkPin()">
+    <div class="email-error" id="pin-error">PIN incorrecto</div>
+    <div class="modal-btns" style="margin-top:16px">
+      <button class="btn-o" onclick="closeModal('modal-pin')">Cancelar</button>
+      <button class="btn-d" onclick="checkPin()">✓ Acceder</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR VALE -->
+<div class="modal-bg" id="modal-edit">
+  <div class="modal" style="max-width:560px">
+    <div class="dept" id="edit-vale-num">Editando Vale #—</div>
+    <h3>Editar Registro</h3>
+    <div style="display:grid;gap:16px;margin-top:16px">
+      <div>
+        <label class="fl">Tipo de Muestra</label>
+        <div class="chips" id="edit-tipo-chips"></div>
+      </div>
+      <div>
+        <label class="fl">Descripción / Nombre</label>
+        <input type="text" id="edit-desc">
+      </div>
+      <div>
+        <label class="fl">Cliente / Proyecto</label>
+        <input type="text" id="edit-cliente">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div>
+          <label class="fl">Cantidad</label>
+          <input type="number" id="edit-cant" min="1">
+        </div>
+        <div>
+          <label class="fl">Entregado a</label>
+          <input type="text" id="edit-receptor">
+        </div>
+      </div>
+      <div>
+        <label class="fl">Unidad</label>
+        <div class="ugrid" id="edit-unidad-chips"></div>
+      </div>
+      <div>
+        <label class="fl">Agregar Fotos (hasta 4 en total)</label>
+        <div class="foto-grid" id="edit-foto-grid">
+          <div class="foto-slot" onclick="triggerEditFoto(0)" id="edit-slot-0"><span class="foto-add">＋</span></div>
+          <div class="foto-slot" onclick="triggerEditFoto(1)" id="edit-slot-1"><span class="foto-add">＋</span></div>
+          <div class="foto-slot" onclick="triggerEditFoto(2)" id="edit-slot-2"><span class="foto-add">＋</span></div>
+          <div class="foto-slot" onclick="triggerEditFoto(3)" id="edit-slot-3"><span class="foto-add">＋</span></div>
+        </div>
+        <input type="file" id="edit-foto-input" accept="image/*" onchange="handleEditFoto(event)">
+      </div>
+    </div>
+    <div class="modal-btns" style="margin-top:20px">
+      <button class="btn-o" onclick="closeModal('modal-edit')">Cancelar</button>
+      <button class="btn-d" onclick="saveEdit()">💾 Guardar Cambios</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
